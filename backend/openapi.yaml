@@ -1493,6 +1493,64 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /api/simulation/{simulation_id}/badge.svg:
+    get:
+      tags: [Publish & Embed]
+      summary: Flat Shields.io-compatible consensus status badge SVG.
+      description: |
+        Renders a 20-pixel-tall flat status badge as an SVG document.
+        Left half: `MiroShark` on the standard Shields.io grey
+        (`#555555`). Right half: `{direction} {confidence_pct}%` on
+        the stance colour — `#22c55e` (Bullish), `#6b7280` (Neutral),
+        `#ef4444` (Bearish). Pill ends via a rounded `clipPath` with
+        `rx="3"` so the badge renders consistently across every
+        `<img>` consumer.
+
+        Direction + confidence derive from the same `compute_signal`
+        pipeline `signal.json` uses, so the badge payload matches the
+        signal payload, the gallery card, and the share card
+        byte-for-byte. Pure stdlib renderer
+        (`xml.etree.ElementTree`); zero new dependencies.
+
+        Embed in any GitHub README, Notion page, Substack post, or
+        personal site:
+
+        ```markdown
+        ![MiroShark](https://your-host/api/simulation/<id>/badge.svg)
+        ```
+
+        Same publish gate as every other share surface
+        (`is_public=true`). Returns `404` when no rounds have been
+        recorded yet (no `belief.final` block on the embed summary)
+        so an embedded `<img>` renders a broken-image placeholder
+        rather than a misleading `Unknown 0%` badge.
+
+        Cached for **60 seconds** — short enough that a live sim's
+        stance flip propagates through to embedded badges within a
+        polling cycle (matches the watch-page poll cadence), long
+        enough that a popular README doesn't hammer the
+        embed-summary build with one fetch per page view.
+
+        The rendered SVG is bytewise-deterministic across calls with
+        the same inputs — a future ETag layer can hash the response
+        bytes directly.
+      parameters:
+        - $ref: "#/components/parameters/SimulationIdPath"
+      responses:
+        "200":
+          description: "Flat 20-pixel status badge with `Content-Type: image/svg+xml; charset=utf-8` + `Cache-Control: public, max-age=60`."
+          content:
+            image/svg+xml:
+              schema:
+                type: string
+                description: |
+                  Complete SVG 1.1 document — XML declaration,
+                  namespace, `viewBox`, accessibility `role="img"` +
+                  `aria-label`, and a rounded `clipPath` so the pill
+                  ends render across every `<img>`-tag consumer.
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /api/simulation/{simulation_id}/signal.json:
     get:
       tags: [Publish & Embed]
@@ -3956,6 +4014,7 @@ components:
             - lineage
             - signal_json
             - archive_zip
+            - badge_svg
             - total
           properties:
             share_card:
@@ -4049,6 +4108,18 @@ components:
                 plus a `manifest.json` with per-file SHA-256s. Tracks
                 pickup by researchers building citation chains or
                 running comparison studies across multiple sims.
+            badge_svg:
+              type: integer
+              minimum: 0
+              description: |
+                Successful `badge.svg` serves — the flat
+                Shields.io-compatible 20-pixel status badge embeddable
+                in any GitHub README, Notion page, Substack post, or
+                personal site as a one-line Markdown image. Tracks
+                the passive-distribution surface — every page view of
+                an embedding README increments this counter, so a
+                popular README produces visibly more serves than the
+                interactive surfaces.
             total:
               type: integer
               minimum: 0

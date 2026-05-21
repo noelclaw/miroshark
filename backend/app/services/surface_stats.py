@@ -46,7 +46,8 @@ Schema::
       "notebook_ipynb": 0,
       "chart_svg": 0,
       "signal_json": 0,
-      "archive_zip": 0
+      "archive_zip": 0,
+      "badge_svg": 0
     }
 
 The ``read_surface_stats`` helper returns the same dict with every key
@@ -87,6 +88,7 @@ SURFACE_KEYS: frozenset[str] = frozenset(
         "chart_svg",
         "signal_json",
         "archive_zip",
+        "badge_svg",
     }
 )
 

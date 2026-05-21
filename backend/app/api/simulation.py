@@ -5466,6 +5466,93 @@ def get_signal_json(simulation_id: str):
         }), 500
 
 
+@simulation_bp.route('/<simulation_id>/badge.svg', methods=['GET'])
+def get_status_badge_svg(simulation_id: str):
+    """Flat Shields.io-style consensus-status badge for a published sim.
+
+    The thirteenth share surface, distribution edition. Where the
+    previous twelve surfaces describe a simulation in increasing
+    depths of detail (chart SVG, replay GIF, trajectory CSV, notebook,
+    signal.json, archive.zip, ...), this one is the *cheapest visible
+    pointer back* — a 20-pixel-tall SVG that fits inside any
+    Markdown image link, README, Notion / Substack page, or
+    ``<img>`` tag. A reader who sees the badge clicks through to the
+    share page; the share page surfaces every other artifact.
+
+    Derives ``direction`` + ``confidence_pct`` from the same
+    ``compute_signal`` pipeline ``signal.json`` uses, so a "Bullish
+    72%" badge here matches the signal payload, the gallery card, and
+    the share card byte-for-byte. Pure stdlib renderer
+    (``xml.etree.ElementTree``); zero new dependencies.
+
+    Same publish gate as every other share surface. Returns ``404``
+    when no rounds have been recorded yet (no ``belief.final`` block
+    on the embed summary) so an embedding ``<img>`` can render a
+    broken-image placeholder rather than a misleading "Unknown 0%"
+    badge.
+
+    ``Cache-Control: public, max-age=60`` — a live sim's badge should
+    reflect a stance flip within a minute, so embedded badges on a
+    researcher's README track the simulation as it runs. Matches the
+    cadence of the watch-page poll interval.
+    """
+    from ..services import badge_service
+    from ..services import signal_service
+    from ..services import surface_stats
+    from flask import Response
+
+    locale = get_locale(request)
+    try:
+        try:
+            summary = _build_embed_summary_payload(simulation_id)
+        except LookupError as exc:
+            return jsonify({"success": False, "error": str(exc)}), 404
+
+        if not summary.get("is_public"):
+            return jsonify({
+                "success": False,
+                "error": _t(
+                    "Simulation is not published. POST /api/simulation/<id>/publish to enable.",
+                    "该模拟未发布,请通过 POST /api/simulation/<id>/publish 启用。",
+                    locale,
+                ),
+            }), 403
+
+        signal = signal_service.compute_signal(summary)
+        if signal is None:
+            return jsonify({
+                "success": False,
+                "error": _t(
+                    "Badge not available yet — the simulation hasn't recorded any rounds.",
+                    "尚无可用的徽章 — 模拟还没有记录任何回合。",
+                    locale,
+                ),
+            }), 404
+
+        payload = badge_service.render_badge_svg_bytes(
+            signal["direction"], signal["confidence_pct"]
+        )
+        response = Response(payload, mimetype="image/svg+xml; charset=utf-8")
+        # 60-second cache — short enough that a live-sim stance flip
+        # propagates through to embedded badges within a poll cycle,
+        # long enough that a popular README doesn't hammer the
+        # embed-summary build with one fetch per page view.
+        response.headers["Cache-Control"] = "public, max-age=60"
+        response.headers["Content-Disposition"] = (
+            f'inline; filename="miroshark-{simulation_id[:12]}-badge.svg"'
+        )
+        sim_dir = os.path.join(Config.WONDERWALL_SIMULATION_DATA_DIR, simulation_id)
+        surface_stats.increment_surface_stat(sim_dir, "badge_svg")
+        return response
+
+    except Exception as e:
+        logger.error(f"badge.svg: failed for {simulation_id}: {e}\n{traceback.format_exc()}")
+        return jsonify({
+            "success": False,
+            "error": str(e),
+        }), 500
+
+
 @simulation_bp.route('/<simulation_id>/archive.zip', methods=['GET'])
 def get_archive_zip(simulation_id: str):
     """Bundle every published share surface into a single ZIP download.

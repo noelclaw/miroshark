@@ -80,6 +80,7 @@ def test_surface_keys_includes_every_serve_handler():
         "chart_svg",
         "signal_json",
         "archive_zip",
+        "badge_svg",
     }
     assert set(surface_stats.SURFACE_KEYS) == expected
 

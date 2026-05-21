@@ -238,6 +238,29 @@ The Embed dialog exposes a `📡 Trading signal (JSON)` section beneath the traj
 
 Closes the gap between *"a sim produces data"* and *"a sim produces a signal"* — the last mile a quant audience needed before MiroShark output could land directly in an automation rather than a notebook.
 
+## Consensus Status Badge SVG
+
+The cheapest visible pointer back to a simulation. The previous twelve share surfaces describe a simulation in increasing depth (chart SVG, replay GIF, trajectory CSV / JSONL, transcript, notebook, signal.json, archive.zip, ...); `GET /api/simulation/<id>/badge.svg` is the *passive distribution lever* — a flat 20-pixel-tall Shields.io-compatible SVG that fits inside any `<img>` tag, Markdown image link, or `<link rel="alternate">` reference. Every researcher's GitHub README, every Notion page, every operator's personal site can embed a live consensus badge with one line of Markdown:
+
+```markdown
+![MiroShark](https://your-host/api/simulation/<id>/badge.svg)
+```
+
+The badge has the canonical Shields.io flat layout: left half "MiroShark" on the standard `#555555` grey, right half `{direction} {confidence_pct}%` on the stance colour — `#22c55e` (Bullish), `#6b7280` (Neutral), `#ef4444` (Bearish). The colour vocabulary matches every other belief surface (chart SVG, share card, replay GIF, watch page, email belief percentages), so a reader who saw the chart in the same README recognises the badge instantly. Direction + confidence derive from the same `compute_signal` pipeline `signal.json` uses — a "Bullish 72%" badge here matches the signal payload, the gallery card, and the share card byte-for-byte.
+
+Pure stdlib `xml.etree.ElementTree` renderer (~330 LoC in `app/services/badge_service.py`); zero new dependencies — same posture as `chart_svg`, `frame_metadata`, `share_card`, and every other renderer module. The rendered SVG is bytewise-deterministic across calls with the same inputs, so a future ETag layer / on-disk cache gets stable cache keys.
+
+- **`viewBox="0 0 W 20"`** — Shields.io flat-style canonical height. The badge sits flush next to a GitHub-Actions / npm / PyPI badge in the same README without an obvious height mismatch. The width scales with the right-label length (`Bullish 5%` is narrower than `Bearish 100%`).
+- **Pill ends** — Rounded corners via a `<clipPath>` with `rx="3"` so the badge renders correctly across every `<img>` consumer including older Notion / Substack / GitHub Markdown previewers. No `<linearGradient>` or `<defs>` — the flat preset is bytewise smaller and renders identically in screen-reader text-only mode.
+- **Accessibility** — `role="img"` + `aria-label="MiroShark: Bullish 72%"` + a `<title>` element. Screen readers announce the status; SEO crawlers pick up the same text.
+- **Defensive on input** — Unknown / missing direction renders with the neutral grey + an explicit `Unknown` label rather than raising. Confidence outside `[0, 100]` clamps; non-numeric becomes `0`. The route handler treats "no rounds yet" as a 404 upstream so an embedded `<img>` renders a broken-image placeholder rather than a misleading `Unknown 0%` badge.
+
+Same publish gate as every other share surface (`is_public=true`). `Cache-Control: public, max-age=60` — a live sim's stance flip propagates through to every embedded badge within one polling cycle (matches the watch-page poll cadence), so a researcher embedding the badge in a README and refreshing the page sees the latest consensus. Short enough that mid-run stance shifts get to readers quickly; long enough that a popular README doesn't hammer the embed-summary build with one fetch per page view.
+
+The Embed dialog exposes a `🏷️ Status badge (SVG)` section: a live in-place preview, a copyable badge URL, a `![MiroShark Belief Badge](...)` Markdown snippet, and an `<img height="20">` HTML snippet. The `badge_svg` counter joins the surface-stats schema so an operator can see how many README / blog / Notion embeds drive views back to the share page.
+
+Turns every distributed share URL into a *pull point* for new visitors who see the badge in a researcher's README — the first share surface that brings the simulation *to* the reader, instead of waiting for the reader to navigate to the share page.
+
 ## Simulation Archive Bundle
 
 The take-offline composite — one ZIP, every published share surface inside. Until now a researcher finishing a simulation had to chain up to nine separate `curl` calls to take the artifact set offline (`share-card.png`, `chart.svg`, `trajectory.csv`, `trajectory.jsonl`, `transcript.md`, `thread.txt`, `reproduce.json`, `notebook.ipynb`, `signal.json`). `GET /api/simulation/<id>/archive.zip` collapses every successfully-rendered surface into one timestamped ZIP plus a `manifest.json` that pairs each contained file with its SHA-256, byte size, MIME type, and canonical source URL.

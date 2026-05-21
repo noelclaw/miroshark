@@ -513,6 +513,83 @@
               </div>
             </div>
 
+            <!-- Status badge — the cheapest visible pointer back to
+                 the simulation. A flat 20-pixel Shields.io-compatible
+                 SVG that fits inside any GitHub README, Notion page,
+                 Substack post, or personal site as a one-line
+                 Markdown image embed. The live signal (direction +
+                 confidence) travels with the badge, so a reader
+                 seeing the badge in a README sees the current
+                 consensus, not a stale screenshot. Same publish gate
+                 as every other share surface; pure stdlib, zero new
+                 deps. -->
+            <div class="transcript-section badge-section">
+              <div class="transcript-head">
+                <span class="transcript-icon">🏷️</span>
+                <div class="transcript-head-body">
+                  <div class="transcript-title">
+                    {{ $tr('Status badge (SVG)', '状态徽章(SVG)') }}
+                  </div>
+                  <div class="transcript-sub">
+                    {{ $tr('A flat Shields.io-compatible 20-pixel SVG showing the current belief direction + confidence. Embed in any GitHub README, Notion page, Substack post, or personal site with one line of Markdown — the badge updates as the simulation runs, so the embed never goes stale.', '一个扁平、与 Shields.io 兼容的 20 像素高 SVG,显示当前信念方向与置信度。在任何 GitHub README、Notion 页面、Substack 文章或个人网站中,用一行 Markdown 即可嵌入 — 徽章会随模拟运行而更新,嵌入永不过期。') }}
+                  </div>
+                </div>
+              </div>
+
+              <div v-if="isPublic && badgeSvgUrl" class="badge-preview">
+                <img
+                  :src="badgeSvgUrl"
+                  :alt="$tr('MiroShark consensus status badge', 'MiroShark 共识状态徽章')"
+                  class="badge-svg-img"
+                />
+              </div>
+              <div v-else-if="!isPublic" class="signal-empty">
+                {{ $tr('Publish the simulation to enable the status badge.', '发布模拟以启用状态徽章。') }}
+              </div>
+
+              <div class="snippet-block transcript-snippet">
+                <div class="snippet-head">
+                  <span class="snippet-label">{{ $tr('Badge URL', '徽章 URL') }}</span>
+                  <button
+                    class="snippet-copy-btn"
+                    @click="copy('badgeUrl')"
+                    :disabled="!isPublic"
+                  >
+                    {{ copied === 'badgeUrl' ? '✓ ' + $tr('Copied', '已复制') : $tr('Copy URL', '复制 URL') }}
+                  </button>
+                </div>
+                <pre class="snippet-code"><code>{{ badgeSvgUrl || '—' }}</code></pre>
+              </div>
+
+              <div class="snippet-block transcript-snippet">
+                <div class="snippet-head">
+                  <span class="snippet-label">{{ $tr('Markdown', 'Markdown') }}</span>
+                  <button
+                    class="snippet-copy-btn"
+                    @click="copy('badgeMd')"
+                    :disabled="!isPublic"
+                  >
+                    {{ copied === 'badgeMd' ? '✓ ' + $tr('Copied', '已复制') : $tr('Copy snippet', '复制代码片段') }}
+                  </button>
+                </div>
+                <pre class="snippet-code"><code>{{ badgeMarkdownSnippet }}</code></pre>
+              </div>
+
+              <div class="snippet-block transcript-snippet">
+                <div class="snippet-head">
+                  <span class="snippet-label">{{ $tr('HTML', 'HTML') }}</span>
+                  <button
+                    class="snippet-copy-btn"
+                    @click="copy('badgeHtml')"
+                    :disabled="!isPublic"
+                  >
+                    {{ copied === 'badgeHtml' ? '✓ ' + $tr('Copied', '已复制') : $tr('Copy snippet', '复制代码片段') }}
+                  </button>
+                </div>
+                <pre class="snippet-code"><code>{{ badgeHtmlSnippet }}</code></pre>
+              </div>
+            </div>
+
             <!-- Machine-readable trading signal — the action primitive
                  sitting on top of the data-export stack. Collapses the
                  final-round belief split + quality health into a single
@@ -1847,6 +1924,7 @@ import {
   getTrajectoryCsvUrl,
   getTrajectoryJsonlUrl,
   getChartSvgUrl,
+  getBadgeUrl,
   getSignalJsonUrl,
   getSignalJson,
   getArchiveZipUrl,
@@ -2006,6 +2084,27 @@ const chartSvgUrl = computed(() => {
 const chartSvgEmbedSnippet = computed(() => {
   const url = chartSvgUrl.value || 'https://your-host/api/simulation/<id>/chart.svg'
   return `<img src="${url}" alt="MiroShark belief trajectory chart" style="max-width:100%;height:auto;" />`
+})
+
+// ── Status badge state ──────────────────────────────────────────────────
+// Shields.io-compatible 20-pixel SVG embedded as `<img>` in any
+// GitHub README, Notion page, Substack post, or personal site. The
+// embed URL is the API URL — no separate "share badge" surface — so
+// the live signal travels with the embed.
+
+const badgeSvgUrl = computed(() => {
+  if (!props.simulationId || !origin.value) return ''
+  return getBadgeUrl(props.simulationId, origin.value)
+})
+
+const badgeMarkdownSnippet = computed(() => {
+  const url = badgeSvgUrl.value || 'https://your-host/api/simulation/<id>/badge.svg'
+  return `![MiroShark Belief Badge](${url})`
+})
+
+const badgeHtmlSnippet = computed(() => {
+  const url = badgeSvgUrl.value || 'https://your-host/api/simulation/<id>/badge.svg'
+  return `<img src="${url}" alt="MiroShark Belief Badge" height="20" />`
 })
 
 // ── Trading signal state ────────────────────────────────────────────────
@@ -2804,6 +2903,9 @@ const copy = async (which) => {
   else if (which === 'trajectoryCsv') text = trajectoryCsvUrl.value
   else if (which === 'chartSvg') text = chartSvgUrl.value
   else if (which === 'chartSvgEmbed') text = chartSvgEmbedSnippet.value
+  else if (which === 'badgeUrl') text = badgeSvgUrl.value
+  else if (which === 'badgeMd') text = badgeMarkdownSnippet.value
+  else if (which === 'badgeHtml') text = badgeHtmlSnippet.value
   else if (which === 'signalUrl') text = signalJsonUrl.value
   else if (which === 'signalCurl') text = signalCurlSnippet.value
   else if (which === 'archiveUrl') text = archiveZipUrl.value
@@ -4003,6 +4105,33 @@ watch(isPublic, () => {
   height: auto;
   max-width: 100%;
   border-radius: 4px;
+}
+
+/* Status badge — Shields.io-compatible 20-pixel SVG. The preview
+   sits on a subtle checkerboard so the badge background colour stays
+   visible against the dialog's light grey panel. ``height: 20`` is
+   pinned to the badge's intrinsic height so the preview never gets
+   stretched. */
+.badge-section {
+  margin-top: 14px;
+}
+
+.badge-preview {
+  margin-top: 10px;
+  padding: 12px;
+  background: #fafafa;
+  border: 1px solid rgba(10, 10, 10, 0.08);
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.badge-svg-img {
+  display: inline-block;
+  height: 20px;
+  width: auto;
+  vertical-align: middle;
 }
 
 /* Trading signal — the action primitive sitting on top of the

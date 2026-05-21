@@ -528,6 +528,35 @@ export const getChartSvgUrl = (simulationId, origin) => {
 }
 
 /**
+ * Build the absolute URL of the consensus-status badge SVG for a
+ * published simulation. The badge is a Shields.io-compatible flat
+ * 20-pixel-tall SVG with the product name on the left half and the
+ * current direction + confidence on the right half (e.g. `Bullish
+ * 72%`). The colour of the right half matches the dominant stance
+ * (`#22c55e` Bullish / `#6b7280` Neutral / `#ef4444` Bearish) — the
+ * same colour vocabulary every other belief surface uses.
+ *
+ * Embed in any GitHub README, Notion page, Substack post, or
+ * personal site:
+ *
+ *     ![MiroShark](https://your-host/api/simulation/<id>/badge.svg)
+ *
+ * Cached for 60 seconds, so a live sim's stance flip propagates to
+ * every embedded badge within one polling cycle. Same publish gate
+ * as every other share surface; returns 404 when no rounds have
+ * been recorded yet (the embedded `<img>` renders a broken-image
+ * placeholder instead of a misleading `Unknown 0%` badge).
+ *
+ * @param {string} simulationId
+ * @param {string} [origin]
+ * @returns {string}
+ */
+export const getBadgeUrl = (simulationId, origin) => {
+  const base = origin || (typeof window !== 'undefined' ? window.location.origin : '')
+  return `${base}/api/simulation/${simulationId}/badge.svg`
+}
+
+/**
  * Fetch the Farcaster Frame v2 metadata for a published simulation.
  *
  * $MIROSHARK lives on Base; the Base-native social network is Farcaster
