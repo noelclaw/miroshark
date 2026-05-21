@@ -78,10 +78,17 @@ def _clear_email(monkeypatch):
     monkeypatch.delenv("SMTP_USE_TLS", raising=False)
 
 
+def _clear_telegram(monkeypatch):
+    """Reset TELEGRAM_* env vars so the channel reads as unconfigured."""
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    monkeypatch.delenv("TELEGRAM_CHAT_ID", raising=False)
+
+
 def test_notifications_config_all_unset(monkeypatch, client):
     monkeypatch.delenv("DISCORD_WEBHOOK_URL", raising=False)
     monkeypatch.delenv("SLACK_WEBHOOK_URL", raising=False)
     _clear_email(monkeypatch)
+    _clear_telegram(monkeypatch)
     from app.config import Config
     monkeypatch.setattr(Config, "WEBHOOK_URL", "", raising=False)
     _clear_dkg(monkeypatch)
@@ -92,6 +99,7 @@ def test_notifications_config_all_unset(monkeypatch, client):
         "discord_configured": False,
         "slack_configured": False,
         "email_configured": False,
+        "telegram_configured": False,
         "dkg_configured": False,
         "dkg_network": None,
     }
@@ -101,6 +109,7 @@ def test_notifications_config_discord_only(monkeypatch, client):
     monkeypatch.setenv("DISCORD_WEBHOOK_URL", "https://discord.example/webhook")
     monkeypatch.delenv("SLACK_WEBHOOK_URL", raising=False)
     _clear_email(monkeypatch)
+    _clear_telegram(monkeypatch)
     from app.config import Config
     monkeypatch.setattr(Config, "WEBHOOK_URL", "", raising=False)
     _clear_dkg(monkeypatch)
@@ -111,6 +120,7 @@ def test_notifications_config_discord_only(monkeypatch, client):
         "discord_configured": True,
         "slack_configured": False,
         "email_configured": False,
+        "telegram_configured": False,
         "dkg_configured": False,
         "dkg_network": None,
     }
@@ -123,6 +133,7 @@ def test_notifications_config_slack_only(monkeypatch, client):
         "https://hooks.slack.com/services/T0/B0/abc",
     )
     _clear_email(monkeypatch)
+    _clear_telegram(monkeypatch)
     from app.config import Config
     monkeypatch.setattr(Config, "WEBHOOK_URL", "", raising=False)
     _clear_dkg(monkeypatch)
@@ -133,6 +144,7 @@ def test_notifications_config_slack_only(monkeypatch, client):
         "discord_configured": False,
         "slack_configured": True,
         "email_configured": False,
+        "telegram_configured": False,
         "dkg_configured": False,
         "dkg_network": None,
     }
@@ -143,6 +155,7 @@ def test_notifications_config_email_only(monkeypatch, client):
     monkeypatch.delenv("SLACK_WEBHOOK_URL", raising=False)
     monkeypatch.setenv("SMTP_HOST", "smtp.example.com")
     monkeypatch.setenv("SMTP_TO", "alerts@example.com")
+    _clear_telegram(monkeypatch)
     from app.config import Config
     monkeypatch.setattr(Config, "WEBHOOK_URL", "", raising=False)
     _clear_dkg(monkeypatch)
@@ -153,6 +166,7 @@ def test_notifications_config_email_only(monkeypatch, client):
         "discord_configured": False,
         "slack_configured": False,
         "email_configured": True,
+        "telegram_configured": False,
         "dkg_configured": False,
         "dkg_network": None,
     }
@@ -166,6 +180,7 @@ def test_notifications_config_email_requires_both_host_and_to(monkeypatch, clien
     monkeypatch.delenv("SLACK_WEBHOOK_URL", raising=False)
     monkeypatch.setenv("SMTP_HOST", "smtp.example.com")
     monkeypatch.delenv("SMTP_TO", raising=False)
+    _clear_telegram(monkeypatch)
     from app.config import Config
     monkeypatch.setattr(Config, "WEBHOOK_URL", "", raising=False)
     _clear_dkg(monkeypatch)
@@ -174,7 +189,46 @@ def test_notifications_config_email_requires_both_host_and_to(monkeypatch, clien
     assert data["email_configured"] is False
 
 
-def test_notifications_config_all_four_configured(monkeypatch, client):
+def test_notifications_config_telegram_only(monkeypatch, client):
+    monkeypatch.delenv("DISCORD_WEBHOOK_URL", raising=False)
+    monkeypatch.delenv("SLACK_WEBHOOK_URL", raising=False)
+    _clear_email(monkeypatch)
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "111:AAAaaa")
+    monkeypatch.setenv("TELEGRAM_CHAT_ID", "-100123456789")
+    from app.config import Config
+    monkeypatch.setattr(Config, "WEBHOOK_URL", "", raising=False)
+    _clear_dkg(monkeypatch)
+
+    data = _payload(client)
+    assert data == {
+        "webhook_configured": False,
+        "discord_configured": False,
+        "slack_configured": False,
+        "email_configured": False,
+        "telegram_configured": True,
+        "dkg_configured": False,
+        "dkg_network": None,
+    }
+
+
+def test_notifications_config_telegram_requires_both_token_and_chat_id(monkeypatch, client):
+    """TELEGRAM_BOT_TOKEN alone (no TELEGRAM_CHAT_ID) is not a usable
+    channel — the bot has nowhere to send. Same posture as the
+    SMTP_HOST/SMTP_TO pairing."""
+    monkeypatch.delenv("DISCORD_WEBHOOK_URL", raising=False)
+    monkeypatch.delenv("SLACK_WEBHOOK_URL", raising=False)
+    _clear_email(monkeypatch)
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "111:AAAaaa")
+    monkeypatch.delenv("TELEGRAM_CHAT_ID", raising=False)
+    from app.config import Config
+    monkeypatch.setattr(Config, "WEBHOOK_URL", "", raising=False)
+    _clear_dkg(monkeypatch)
+
+    data = _payload(client)
+    assert data["telegram_configured"] is False
+
+
+def test_notifications_config_all_five_configured(monkeypatch, client):
     monkeypatch.setenv("DISCORD_WEBHOOK_URL", "https://discord.example/webhook")
     monkeypatch.setenv(
         "SLACK_WEBHOOK_URL",
@@ -182,6 +236,8 @@ def test_notifications_config_all_four_configured(monkeypatch, client):
     )
     monkeypatch.setenv("SMTP_HOST", "smtp.example.com")
     monkeypatch.setenv("SMTP_TO", "alerts@example.com")
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "111:AAAaaa")
+    monkeypatch.setenv("TELEGRAM_CHAT_ID", "-100123456789")
     from app.config import Config
     monkeypatch.setattr(Config, "WEBHOOK_URL", "https://example.com/hook", raising=False)
     _clear_dkg(monkeypatch)
@@ -192,6 +248,7 @@ def test_notifications_config_all_four_configured(monkeypatch, client):
         "discord_configured": True,
         "slack_configured": True,
         "email_configured": True,
+        "telegram_configured": True,
         "dkg_configured": False,
         "dkg_network": None,
     }
@@ -205,6 +262,8 @@ def test_notifications_config_blank_env_var_treated_as_unset(monkeypatch, client
     monkeypatch.setenv("SLACK_WEBHOOK_URL", "")
     monkeypatch.setenv("SMTP_HOST", "  ")
     monkeypatch.setenv("SMTP_TO", "   ")
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "  ")
+    monkeypatch.setenv("TELEGRAM_CHAT_ID", "")
     from app.config import Config
     monkeypatch.setattr(Config, "WEBHOOK_URL", "  ", raising=False)
     _clear_dkg(monkeypatch)
@@ -215,6 +274,7 @@ def test_notifications_config_blank_env_var_treated_as_unset(monkeypatch, client
         "discord_configured": False,
         "slack_configured": False,
         "email_configured": False,
+        "telegram_configured": False,
         "dkg_configured": False,
         "dkg_network": None,
     }
@@ -226,6 +286,7 @@ def test_notifications_config_dkg_configured(monkeypatch, client):
     monkeypatch.delenv("DISCORD_WEBHOOK_URL", raising=False)
     monkeypatch.delenv("SLACK_WEBHOOK_URL", raising=False)
     _clear_email(monkeypatch)
+    _clear_telegram(monkeypatch)
     from app.config import Config
     monkeypatch.setattr(Config, "WEBHOOK_URL", "", raising=False)
     monkeypatch.setattr(Config, "DKG_API_URL", "http://127.0.0.1:9200", raising=False)
@@ -239,6 +300,7 @@ def test_notifications_config_dkg_configured(monkeypatch, client):
         "discord_configured": False,
         "slack_configured": False,
         "email_configured": False,
+        "telegram_configured": False,
         "dkg_configured": True,
         "dkg_network": "mainnet",
     }
@@ -251,6 +313,7 @@ def test_notifications_config_dkg_partial_treated_as_unconfigured(monkeypatch, c
     monkeypatch.delenv("DISCORD_WEBHOOK_URL", raising=False)
     monkeypatch.delenv("SLACK_WEBHOOK_URL", raising=False)
     _clear_email(monkeypatch)
+    _clear_telegram(monkeypatch)
     from app.config import Config
     monkeypatch.setattr(Config, "WEBHOOK_URL", "", raising=False)
     monkeypatch.setattr(Config, "DKG_API_URL", "http://127.0.0.1:9200", raising=False)
@@ -272,6 +335,7 @@ def test_notifications_config_no_store_cache_header(monkeypatch, client):
     monkeypatch.delenv("DISCORD_WEBHOOK_URL", raising=False)
     monkeypatch.delenv("SLACK_WEBHOOK_URL", raising=False)
     _clear_email(monkeypatch)
+    _clear_telegram(monkeypatch)
     from app.config import Config
     monkeypatch.setattr(Config, "WEBHOOK_URL", "", raising=False)
 

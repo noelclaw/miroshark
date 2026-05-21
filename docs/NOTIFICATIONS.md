@@ -1,25 +1,27 @@
 # Channel Notifications
 
 MiroShark fires a notification the moment a simulation reaches a terminal
-state (`simulation.completed` or `simulation.failed`). Four independent
-channels run in parallel — each opt-in via its own env var:
+state (`simulation.completed` or `simulation.failed`). Five independent
+channels run in parallel — each opt-in via its own env var (or env-var
+pair):
 
-| Channel  | Env var                       | Format               | Use case                                                      |
-| -------- | ----------------------------- | -------------------- | ------------------------------------------------------------- |
-| Webhook  | `WEBHOOK_URL`                 | Raw JSON `POST`      | Zapier / Make / n8n / IFTTT / custom listeners                |
-| Discord  | `DISCORD_WEBHOOK_URL`         | Discord rich embed   | Discord channels — coloured cards with belief % fields        |
-| Slack    | `SLACK_WEBHOOK_URL`           | Slack Block Kit      | Slack channels — header + block-bar fields + action button    |
-| Email    | `SMTP_HOST` + `SMTP_TO`       | `multipart/alternative` | Any inbox or mailing list — no platform account required   |
+| Channel  | Env var                                       | Format               | Use case                                                      |
+| -------- | --------------------------------------------- | -------------------- | ------------------------------------------------------------- |
+| Webhook  | `WEBHOOK_URL`                                 | Raw JSON `POST`      | Zapier / Make / n8n / IFTTT / custom listeners                |
+| Discord  | `DISCORD_WEBHOOK_URL`                         | Discord rich embed   | Discord channels — coloured cards with belief % fields        |
+| Slack    | `SLACK_WEBHOOK_URL`                           | Slack Block Kit      | Slack channels — header + block-bar fields + action button    |
+| Email    | `SMTP_HOST` + `SMTP_TO`                       | `multipart/alternative` | Any inbox or mailing list — no platform account required   |
+| Telegram | `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID`     | Bot API `sendMessage` (HTML) | Telegram chats, groups, or channels — bot card with belief bars + inline button |
 
-Channels are independent. Set one, two, three, or all four — each
-fires separately. Unset env vars are silently skipped, so existing
+Channels are independent. Set one, several, or all five — each fires
+separately. Unset env vars are silently skipped, so existing
 deployments that only use the generic webhook are unaffected by this
 feature.
 
 The SPA exposes a public probe at `GET /api/config/notifications`
 returning `{webhook_configured, discord_configured, slack_configured,
-email_configured}` so the operator can confirm channel status without
-opening the backend config.
+email_configured, telegram_configured}` so the operator can confirm
+channel status without opening the backend config.
 
 ## Generic webhook (existing, PR #46)
 
@@ -181,6 +183,67 @@ runner's two terminal code paths both fire, but the per-process
 `(sim_id, status)` set ensures the inbox sees exactly one message
 per terminal state.
 
+## Telegram Bot
+
+Set `TELEGRAM_BOT_TOKEN` to a Bot API token and `TELEGRAM_CHAT_ID` to
+the chat / group / channel the bot should post into:
+
+```bash
+# 1. On Telegram, talk to @BotFather, send /newbot, follow the
+#    prompts. Copy the "123456789:AAEh…" token.
+TELEGRAM_BOT_TOKEN=YOUR_BOT_TOKEN_HERE
+
+# 2. Send the bot at least one message in the destination chat,
+#    group, or channel, then read the chat id from:
+#      https://api.telegram.org/bot<TOKEN>/getUpdates
+#    For a private chat the id is positive (your user id); for a
+#    group / supergroup it's negative ("-100…"); for a public
+#    channel the bot is admin of you can also use "@channelname".
+TELEGRAM_CHAT_ID=-100123456789
+```
+
+On every terminal-state transition, MiroShark calls Bot API
+`sendMessage` with `parse_mode=HTML` and `disable_web_page_preview=true`:
+
+* **Header** — scenario in bold, truncated to 200 chars.
+* **Status line** — italicised status verb + monospaced sim id.
+* **Belief bars** — `Bullish` / `Neutral` / `Bearish` lines with the
+  same Unicode block-bar Slack uses (`█████░░░░░ 52.0%`), only when
+  a trajectory was available.
+* **Key/value block** — `Quality`, `Scale` (`N agents · N rounds`),
+  `Outcome` (when set).
+* **Direction tag** — explicit `Bullish` / `Bearish` / `Failed`
+  label so the first notification-preview line is informative even
+  on Android lock screens that clip after one line.
+* **Inline-keyboard button** — a single "View simulation" button
+  linking to `/share/<sim_id>`. Only emitted when `PUBLIC_BASE_URL`
+  is set (Telegram rejects buttons whose `url` isn't absolute).
+
+Failed runs append an `Error` block in a fenced `<pre>` so multiline
+stack traces render cleanly on every Telegram client.
+
+Every text segment is HTML-escaped through `html.escape()` before
+splicing — Telegram rejects the whole message with HTTP 400 if any
+HTML tag fails to parse, so a scenario containing a stray `<` (e.g.
+`"Will TVL <$1B by EOY?"`) doesn't silently kill the notification.
+
+Same dedup posture and fire-and-forget guarantees as the other
+channels — the runner's two terminal code paths both fire, but the
+per-process `(sim_id, status)` set ensures the chat sees exactly one
+message per terminal state.
+
+### Test snippet
+
+```bash
+# Verify a bot token + chat id work without touching MiroShark
+TOKEN="123456789:AAEh…"
+CHAT="-100123456789"
+curl -s -X POST "https://api.telegram.org/bot${TOKEN}/sendMessage" \
+  -H "Content-Type: application/json" \
+  -d "{\"chat_id\": \"${CHAT}\", \"text\": \"OK\"}"
+# {"ok":true,"result":{…}}
+```
+
 ## Picking the right channel
 
 * **Discord** — community-facing. Use when the audience wants the
@@ -196,16 +259,22 @@ per terminal state.
   when the operator wants a permanent searchable record that
   doesn't depend on a third-party SaaS retention policy. The one
   channel that works without anyone signing up for anything new.
+* **Telegram** — messaging-native. Use when the audience already
+  lives on Telegram — most of MiroShark's crypto-launch /
+  political-debate / breaking-news audience does. The fastest path
+  to push notifications on a phone for a research team that doesn't
+  use Slack.
 * **Generic webhook** — automation-facing. Use when the result
   needs to land in a workflow tool (Zapier / Make / n8n) that
   unpacks the JSON itself.
 
 ## Sandbox note
 
-Pure stdlib (`urllib.request` + `json` + `os` + `hmac` for the
-webhook channels; `smtplib` + `email.mime` + `ssl` for email). No
-new dependencies. The HMAC signing scheme on the generic webhook
-(`X-MiroShark-Signature`, PR #79) applies only to that channel —
-Discord, Slack, and Email use the platforms' own authentication
-(URL-as-secret for the chat channels; SMTP auth + STARTTLS for the
-email channel) and ignore signature headers.
+Pure stdlib (`urllib.request` + `json` + `os` + `html` + `hmac` for
+the webhook / Discord / Slack / Telegram channels; `smtplib` +
+`email.mime` + `ssl` for email). No new dependencies. The HMAC
+signing scheme on the generic webhook (`X-MiroShark-Signature`,
+PR #79) applies only to that channel — Discord, Slack, Email, and
+Telegram use the platforms' own authentication (URL-as-secret for
+Discord / Slack; SMTP auth + STARTTLS for email; bot-token-in-URL
+for Telegram) and ignore signature headers.
