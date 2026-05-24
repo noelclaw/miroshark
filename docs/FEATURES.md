@@ -313,6 +313,50 @@ The Embed dialog exposes a `🏷️ Status badge (SVG)` section: a live in-place
 
 Turns every distributed share URL into a *pull point* for new visitors who see the badge in a researcher's README — the first share surface that brings the simulation *to* the reader, instead of waiting for the reader to navigate to the share page.
 
+## Platform Aggregate Statistics
+
+The first endpoint that describes the platform itself rather than one simulation. `GET /api/stats` collapses every simulation on disk that satisfies `is_public == true` AND `status == "completed"` into a single envelope: a total sim count, a consensus distribution (bullish / neutral / bearish counts + percentages), an average `confidence_pct` across the corpus, a sum of every `surface-stats.json` counter on disk, the count of unique `project_id`s the simulations span, and the newest-sim identifier + created-at timestamp. One read powers press kits ("MiroShark has run N simulations"), external dashboards, LLM-agent health checks (*"is this MiroShark instance active?"*), and the platform Shields.io badge below.
+
+```json
+{
+  "success": true,
+  "data": {
+    "schema_version": "1",
+    "total_sims": 1247,
+    "consensus_distribution": {
+      "bullish": 612, "neutral": 308, "bearish": 327,
+      "bullish_pct": 49.1, "neutral_pct": 24.7, "bearish_pct": 26.2
+    },
+    "avg_confidence_pct": 58.4,
+    "total_surface_views": 41682,
+    "unique_projects": 89,
+    "newest_sim_id": "sim_e7c1b2f3a9d4",
+    "newest_sim_created_at": "2026-05-24T15:42:11.103928"
+  }
+}
+```
+
+- **Stance counts inherit the per-sim derivation.** The same plurality + tie-break rules (`bullish > bearish > neutral`) that turn a sim's final belief split into a `direction` on the per-sim `signal.json` produce the platform-level counts here. A simulation labelled Bullish on its `signal.json` is counted in the `bullish` bucket on this aggregate — two surfaces, one source of truth.
+- **`unique_projects`, not `unique_operators`.** `SimulationState` carries no operator / created-by field — `project_id` is the closest stable identifier. Each project is conventionally a single research / operator workspace, so the project count is a reasonable proxy for the operator count, but the field name doesn't promise data the model can't back. A future model migration can add a dedicated `operator` field and a sibling `unique_operators` aggregate without breaking this surface.
+- **One-scan, 60-second cache.** A module-level cache keyed on the simulation root absorbs bursty press unfurls — every call after the first inside the 60-second window is a dict copy, not a disk scan. The route additionally emits a short `ETag` derived from `total_sims` + `newest_sim_id`; an `If-None-Match` conditional GET short-circuits to `304 Not Modified` without re-serialising the body, so a README badge polling every minute pays roughly the cost of one HEAD request per window.
+- **Empty deployments degrade cleanly.** A fresh install with zero published simulations returns a fully-zeroed envelope, not a 404. A consumer rendering "*N simulations run*" doesn't need to special-case the first day of deployment.
+
+Pure stdlib (`os` + `json` + `time` + `threading`, ~340 LoC in `app/services/platform_stats.py`); zero new dependencies — same posture as `signal_service`, `badge_service`, and every other aggregate module. The scan walks `WONDERWALL_SIMULATION_DATA_DIR` directly; no Neo4j, no LLM, no outbound network.
+
+## Platform Stats Badge SVG
+
+The platform-level sibling of the per-sim `/badge.svg`. `GET /api/stats/badge.svg` returns a flat 20-pixel Shields.io-compatible pill — `MiroShark` on the standard Shields.io grey (`#555555`), `N simulations` on platform-blue (`#0ea5e9`). One line of Markdown turns any community README, Substack header, or operator portfolio into a live platform-activity indicator:
+
+```markdown
+![MiroShark](https://your-host/api/stats/badge.svg)
+```
+
+The count is the same `total_sims` value `/api/stats` reports — the two surfaces share the same scan and the same 60-second cache. Platform-blue is visually distinct from the three per-sim stance colours (`#22c55e` / `#6b7280` / `#ef4444`) so a reader never mistakes the platform badge for a per-sim consensus badge — sim badges sit on the right edge of "this specific run was bullish"; platform badges sit on the left edge of "this whole project is active".
+
+A zero-sim deployment renders a valid `MiroShark | 0 simulations` pill rather than a 404 — an embedded `<img>` on a freshly-installed instance never broken-image-glyphs. Same flat layout, accessibility attributes (`role="img"`, `aria-label="MiroShark: N simulations"`, `<title>` element), and rounded `<clipPath>` pill ends as the per-sim badge; the only differences are the right-half label and fill colour. Bytewise-deterministic across calls with the same input count — a future ETag layer can hash the response bytes directly.
+
+A second-order distribution amplifier: per-sim badges (PR #94) are pull points for *specific simulations*; the platform badge is a pull point for *MiroShark itself*. Every operator running an Aeon framework instance, every researcher with a personal site, every Substack post about swarm simulations becomes a live signal that the platform is active and growing.
+
 ## BibTeX Academic Citation
 
 Closes the academic citation arc. `reproduce.json` (PR #79) carries every parameter a second operator needs to re-run the simulation; the OriginTrail DKG citation (PR #84) anchors those bytes on-chain as cryptographic provenance; the `notebook.ipynb` (PR #80) drops the trajectory into a researcher's IDE. `GET /api/simulation/<id>/cite.bib` adds the missing layer — a one-call BibTeX `@misc{…}` entry that drops straight into a LaTeX paper source, imports cleanly into Zotero / Mendeley via "Import from URL" (both readers consume `text/plain` BibTeX at an HTTP URL directly), and carries the reproduce.json SHA-256 in the `note` field so a reviewer can verify the citation points to the same simulation parameters years later via `sha256sum --check`.

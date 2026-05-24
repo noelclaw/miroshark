@@ -84,6 +84,8 @@ tags:
     description: This OpenAPI spec and Swagger UI.
   - name: Discovery
     description: Search-engine sitemap and robots.txt — auto-generated discovery surfaces over the public-simulation gallery.
+  - name: Platform
+    description: Platform-level aggregate stats (total sims, consensus distribution, surface views) — the first endpoints that describe MiroShark itself, not a single simulation.
 
 paths:
 
@@ -2510,6 +2512,132 @@ paths:
                           and a base URL is resolvable; `null`
                           otherwise.
 
+  /api/stats:
+    get:
+      tags: [Platform]
+      summary: Platform-level aggregate stats across every public, completed simulation.
+      description: |
+        Collapses every simulation on disk that satisfies
+        `is_public == true` AND `status == "completed"` into a single
+        envelope: a total count, a consensus distribution
+        (bullish / neutral / bearish + their percentages), an average
+        `confidence_pct` across all sims, a sum of every recognised
+        `surface-stats.json` counter, the count of unique
+        `project_id`s the corpus spans, and the newest-sim
+        identifier + created-at timestamp.
+
+        First endpoint that describes the platform itself rather than
+        one simulation. Press kits, external dashboards, LLM-agent
+        health checks (*"is this MiroShark instance active?"*), and
+        the platform Shields.io badge (`/api/stats/badge.svg`) all
+        consume the same payload.
+
+        **Stance derivation matches the per-sim signal.json
+        byte-for-byte.** The same plurality + tie-break rules
+        (`bullish > bearish > neutral`) that turn a sim's final
+        belief split into a `direction` on the per-sim surface
+        produce the platform-level counts here. A simulation labelled
+        Bullish on its signal.json is counted in the `bullish` bucket
+        on this aggregate.
+
+        **`unique_projects`, not `unique_operators`.**
+        `SimulationState` carries no operator / created-by field —
+        `project_id` is the closest stable identifier. Each project
+        is conventionally a single research / operator workspace, so
+        the project count is a reasonable proxy for the operator
+        count, but the field name doesn't promise data the model
+        can't back. A future model migration can add a dedicated
+        `operator` field and a sibling `unique_operators` aggregate
+        without breaking this surface.
+
+        **Cached for 60 seconds.** A module-level scan cache absorbs
+        bursty press unfurls. The response carries
+        `Cache-Control: public, max-age=60` and a short `ETag`
+        derived from `total_sims` + `newest_sim_id`; a conditional
+        `If-None-Match` GET short-circuits to `304 Not Modified`
+        without re-serialising the body, so a README badge polling
+        every minute pays roughly the cost of one HEAD request per
+        window.
+
+        Empty deployment returns a fully-zeroed envelope rather than
+        a 404 — the same way a 1000-sim deployment renders its real
+        number. A consumer rendering *"N simulations run"* doesn't
+        need to special-case a fresh install.
+      responses:
+        "200":
+          description: Platform stats envelope.
+          headers:
+            ETag:
+              schema: { type: string }
+              description: |
+                Short cache tag derived from `total_sims` +
+                `newest_sim_id`. Stable across the 60-second cache
+                window; bumps when a new sim is published.
+            Cache-Control:
+              schema: { type: string }
+              description: "`public, max-age=60`."
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success: { type: boolean, enum: [true] }
+                  data:
+                    $ref: "#/components/schemas/PlatformStats"
+        "304":
+          description: |
+            `If-None-Match` matched the current `ETag`; body omitted.
+            The `ETag` and `Cache-Control` headers are still returned
+            so the consumer can refresh its cache TTL.
+
+  /api/stats/badge.svg:
+    get:
+      tags: [Platform]
+      summary: Flat platform-stats Shields.io badge SVG.
+      description: |
+        Renders the platform-level sibling of
+        `/api/simulation/<id>/badge.svg`: a flat 20-pixel
+        Shields.io-compatible pill `MiroShark | N simulations` where
+        `N` is the `total_sims` count from `/api/stats`. Left half
+        carries the standard Shields.io grey (`#555555`); right half
+        uses platform-blue (`#0ea5e9`) — visually distinct from the
+        three per-sim stance colours so a reader never mistakes the
+        platform badge for a per-sim consensus badge.
+
+        One line of Markdown turns any GitHub README, Substack post,
+        Notion page, or personal site into a live platform-activity
+        indicator:
+
+        ```markdown
+        ![MiroShark](https://your-host/api/stats/badge.svg)
+        ```
+
+        **Always returns `200`.** A zero-sim deployment renders a
+        valid `MiroShark | 0 simulations` pill rather than a 404, so
+        an embedded `<img>` on a freshly-installed instance never
+        broken-image-glyphs. Same publish gate semantics as the per-
+        sim badge (only public + completed sims contribute to the
+        count), inherited from `/api/stats`.
+
+        **Cached for 60 seconds.** Matches the per-sim badge cache
+        cadence so a reader polling both badges on the same README
+        sees consistent freshness. The rendered SVG is bytewise-
+        deterministic across calls with the same input count — a
+        future ETag layer can hash the response bytes directly.
+      responses:
+        "200":
+          description: Flat 20-pixel platform badge with `Content-Type: image/svg+xml` + `Cache-Control: public, max-age=60`.
+          content:
+            image/svg+xml:
+              schema:
+                type: string
+                description: |
+                  Complete SVG 1.1 document — XML declaration,
+                  namespace, `viewBox`, accessibility `role="img"` +
+                  `aria-label`, and a rounded `clipPath` so the pill
+                  ends render across every `<img>`-tag consumer.
+
   /api/simulation/{simulation_id}/export:
     get:
       tags: [Export]
@@ -4740,6 +4868,134 @@ components:
             *computation time*, not the underlying simulation
             completion time. Same posture as `signal.json` (bytewise
             determinism is not a property of this surface).
+
+    PlatformStats:
+      type: object
+      description: |
+        Platform-level aggregate envelope returned by `/api/stats`.
+        Collapses every simulation under
+        `WONDERWALL_SIMULATION_DATA_DIR` that satisfies
+        `is_public == true` AND `status == "completed"` into a single
+        snapshot. Same scan feeds the `/api/stats/badge.svg` count.
+
+        Schema is versioned via `schema_version`. v1 is the only
+        published version; future breaking changes bump the literal
+        and the badge / dashboard consumers gate on the value.
+      required:
+        - schema_version
+        - total_sims
+        - consensus_distribution
+        - avg_confidence_pct
+        - total_surface_views
+        - unique_projects
+        - newest_sim_id
+        - newest_sim_created_at
+      properties:
+        schema_version:
+          type: string
+          enum: ["1"]
+          description: Schema version literal — bumped on breaking changes.
+        total_sims:
+          type: integer
+          minimum: 0
+          description: |
+            Count of simulations satisfying `is_public == true` AND
+            `status == "completed"`. The same count the
+            `/api/stats/badge.svg` pill renders.
+        consensus_distribution:
+          type: object
+          description: |
+            Per-stance counts + percentages across every counted
+            simulation. The same plurality + tie-break rules
+            (`bullish > bearish > neutral`) the per-sim `signal.json`
+            uses produce these buckets — a sim labelled Bullish on
+            its signal.json lands in the `bullish` count here.
+          required:
+            - bullish
+            - neutral
+            - bearish
+            - bullish_pct
+            - neutral_pct
+            - bearish_pct
+          properties:
+            bullish:
+              type: integer
+              minimum: 0
+              description: Number of sims whose plurality stance is Bullish.
+            neutral:
+              type: integer
+              minimum: 0
+              description: Number of sims whose plurality stance is Neutral.
+            bearish:
+              type: integer
+              minimum: 0
+              description: Number of sims whose plurality stance is Bearish.
+            bullish_pct:
+              type: number
+              format: float
+              minimum: 0
+              maximum: 100
+              description: |
+                `bullish / total_sims * 100` rounded to one decimal.
+                `0.0` when `total_sims == 0`.
+            neutral_pct:
+              type: number
+              format: float
+              minimum: 0
+              maximum: 100
+              description: |
+                `neutral / total_sims * 100` rounded to one decimal.
+            bearish_pct:
+              type: number
+              format: float
+              minimum: 0
+              maximum: 100
+              description: |
+                `bearish / total_sims * 100` rounded to one decimal.
+        avg_confidence_pct:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 100
+          description: |
+            Mean of every contributing sim's per-sim `confidence_pct`
+            (same continuous value the per-sim `signal.json`
+            surfaces), rounded to one decimal. `0.0` when no sim
+            contributes a derivable signal (empty deployment or every
+            sim missing its trajectory).
+        total_surface_views:
+          type: integer
+          minimum: 0
+          description: |
+            Sum of every recognised counter across every contributing
+            sim's `surface-stats.json`. Unknown keys are ignored
+            (the same `SURFACE_KEYS` whitelist the per-sim surface-
+            stats reader uses). A coarse but live indicator of
+            platform-wide audience activity.
+        unique_projects:
+          type: integer
+          minimum: 0
+          description: |
+            Distinct non-empty `project_id` values across every
+            contributing sim. A proxy for the operator count —
+            `SimulationState` carries no operator field, so
+            `project_id` is the closest stable identifier. A future
+            model migration can add a dedicated `operator` field and
+            a sibling `unique_operators` aggregate without breaking
+            this surface.
+        newest_sim_id:
+          type: [string, "null"]
+          description: |
+            Identifier of the simulation with the lexicographically
+            largest `created_at` ISO timestamp among contributing
+            sims, or `null` on an empty deployment.
+        newest_sim_created_at:
+          type: [string, "null"]
+          format: date-time
+          description: |
+            The `created_at` timestamp paired with `newest_sim_id`,
+            or `null` on an empty deployment. ISO-8601 — emitted
+            verbatim from the underlying sim's `state.json`.
 
     ArchiveManifestEntry:
       type: object

@@ -111,6 +111,9 @@ _BLUEPRINT_PREFIXES = {
     # ENABLE_SITEMAP flag to the SPA — see app/api/sitemap.py.
     "sitemap_bp":        "",
     "notifications_bp":  "",
+    # stats_bp serves /api/stats (JSON aggregate) + /api/stats/badge.svg
+    # (platform Shields.io pill) — see app/api/stats.py.
+    "stats_bp":          "/api/stats",
 }
 
 

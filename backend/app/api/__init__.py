@@ -43,3 +43,8 @@ from .sitemap import sitemap_bp  # noqa: E402, F401
 # are wired up on this deployment without leaking the URLs themselves.
 from .notifications import notifications_bp  # noqa: E402, F401
 
+# stats_bp serves /api/stats + /api/stats/badge.svg — the first
+# endpoints that describe the platform itself rather than one
+# simulation. See app/api/stats.py.
+from .stats import stats_bp  # noqa: E402, F401
+

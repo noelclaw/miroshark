@@ -109,6 +109,8 @@ Base URL is `http://localhost:5001` in dev. Every endpoint returns JSON unless o
 | `GET` | `/sitemap.xml` | Auto-generated sitemap (sitemaps.org 0.9) listing every public sim's `/share/<id>` + `/watch/<id>` URLs. `404` when `ENABLE_SITEMAP=false`. Cached 1 h |
 | `GET` | `/robots.txt` | Crawler directives — `Disallow: /api/`, `Allow: /share/` etc., advertises `Sitemap:` when enabled. Cached 1 h |
 | `GET` | `/api/config/sitemap` | Public flag `{enabled, sitemap_url}` exposed to the SPA so EmbedDialog renders the right indexing hint |
+| `GET` | `/api/stats` | Platform-level aggregate stats — `total_sims` (public + completed), `consensus_distribution` (bullish/neutral/bearish counts + pcts via the same plurality rules `signal.json` uses), `avg_confidence_pct`, `total_surface_views` (sum across every sim's `surface-stats.json`), `unique_projects`, `newest_sim_id` + `newest_sim_created_at`. ETag derived from `total_sims` + `newest_sim_id` so `If-None-Match` short-circuits to `304`. Cached 60 s |
+| `GET` | `/api/stats/badge.svg` | Flat Shields.io-compatible platform badge — `MiroShark` left half (`#555555`), `N simulations` right half (platform-blue `#0ea5e9`). Sibling of the per-sim `badge.svg` — embed in any community README, Substack, or operator portfolio to advertise live platform activity. Always returns `200` (a zero-sim deployment renders `MiroShark | 0 simulations`). Cached 60 s |
 | `POST` | `/api/simulation/<id>/article` | Generate a Substack-style write-up |
 | `GET` | `/api/simulation/<id>/export` | Full JSON export |
 | `GET` | `/api/simulation/list` | List simulations |

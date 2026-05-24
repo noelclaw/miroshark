@@ -79,7 +79,7 @@ def create_app(config_class=Config):
         return response
     
     # Register blueprints
-    from .api import graph_bp, simulation_bp, report_bp, templates_bp, settings_bp, observability_bp, mcp_bp, docs_bp, feed_bp, share_bp, watch_bp, sitemap_bp, notifications_bp, countries_bp
+    from .api import graph_bp, simulation_bp, report_bp, templates_bp, settings_bp, observability_bp, mcp_bp, docs_bp, feed_bp, share_bp, watch_bp, sitemap_bp, notifications_bp, countries_bp, stats_bp
     app.register_blueprint(graph_bp, url_prefix='/api/graph')
     app.register_blueprint(simulation_bp, url_prefix='/api/simulation')
     app.register_blueprint(report_bp, url_prefix='/api/report')
@@ -115,6 +115,11 @@ def create_app(config_class=Config):
     # /api root (no extra sub-prefix) to mirror the sitemap config
     # endpoint that pairs with it on the SPA side.
     app.register_blueprint(notifications_bp)
+    # stats_bp serves /api/stats (JSON aggregate) + /api/stats/badge.svg
+    # (Shields.io platform badge). Mounted at /api/stats so both URLs
+    # share the same prefix without leaking the implementation detail
+    # to the rest of the simulation namespace.
+    app.register_blueprint(stats_bp, url_prefix='/api/stats')
     
     # Health check
     @app.route('/health')

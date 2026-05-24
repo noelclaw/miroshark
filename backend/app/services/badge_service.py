@@ -317,3 +317,149 @@ def render_badge_svg_bytes(direction: Any, confidence_pct: Any) -> bytes:
     """
     body = build_badge_svg(direction, confidence_pct)
     return b'<?xml version="1.0" encoding="UTF-8"?>' + body.encode("utf-8")
+
+
+# ── Platform-level badge ──────────────────────────────────────────────────
+#
+# A sibling renderer for the platform-stats badge served at
+# ``/api/stats/badge.svg``. The per-sim ``build_badge_svg`` above renders
+# a stance-coloured pill for one simulation; this renders a flat
+# platform-blue pill ("MiroShark | N simulations") suitable for the
+# project README, the community Substack header, an operator's portfolio,
+# anywhere a single live count of platform activity belongs.
+#
+# Pinned colour: ``#0ea5e9`` (sky-500). Distinct from the three stance
+# colours so a reader never mistakes the platform badge for a per-sim
+# consensus badge. Same flat 20-pixel Shields.io geometry as the per-sim
+# pill so the two badges sit flush in a row of README shields.
+
+PLATFORM_COLOR = "#0ea5e9"
+
+
+def _format_platform_right_label(count: Any) -> str:
+    """Build the right-hand label for the platform badge.
+
+    Coerces the count to a non-negative integer (anything non-numeric
+    becomes ``0``) and produces the ``"N simulations"`` string. Always
+    uses the plural form regardless of count — Shields.io badges look
+    visually balanced with a consistent word width across renders, and
+    the rare ``1 simulations`` reads as "platform-active" rather than
+    ungrammatical on a freshly-deployed instance.
+    """
+    try:
+        ivalue = int(count)
+    except (TypeError, ValueError):
+        ivalue = 0
+    if ivalue < 0:
+        ivalue = 0
+    return f"{ivalue} simulations"
+
+
+def build_platform_badge_svg(count: Any) -> str:
+    """Render the flat platform-stats badge as an SVG string.
+
+    Returns a complete SVG 1.1 document with the same dimensions,
+    rounded clip path, font family, and a11y attributes as
+    ``build_badge_svg`` — only the right-hand label and fill colour
+    differ. Bytewise-deterministic across calls with the same count
+    so HTTP caching layers can hash the body for an ETag.
+    """
+    right_label = _format_platform_right_label(count)
+
+    left_text_width = _approx_text_width(LEFT_LABEL)
+    right_text_width = _approx_text_width(right_label)
+
+    left_section_width = left_text_width + 2 * SIDE_PADDING
+    right_section_width = right_text_width + 2 * SIDE_PADDING
+    total_width = left_section_width + right_section_width
+
+    aria_label = f"MiroShark: {right_label}"
+
+    svg = ET.Element(
+        "svg",
+        {
+            "xmlns": "http://www.w3.org/2000/svg",
+            "width": str(total_width),
+            "height": str(BADGE_HEIGHT),
+            "viewBox": f"0 0 {total_width} {BADGE_HEIGHT}",
+            "role": "img",
+            "aria-label": aria_label,
+        },
+    )
+
+    title = ET.SubElement(svg, "title")
+    title.text = aria_label
+
+    clip = ET.SubElement(svg, "clipPath", {"id": "miroshark-platform-clip"})
+    ET.SubElement(
+        clip,
+        "rect",
+        {
+            "width": str(total_width),
+            "height": str(BADGE_HEIGHT),
+            "rx": "3",
+            "fill": "#fff",
+        },
+    )
+
+    bg = ET.SubElement(svg, "g", {"clip-path": "url(#miroshark-platform-clip)"})
+    ET.SubElement(
+        bg,
+        "rect",
+        {
+            "width": str(left_section_width),
+            "height": str(BADGE_HEIGHT),
+            "fill": LEFT_FILL,
+        },
+    )
+    ET.SubElement(
+        bg,
+        "rect",
+        {
+            "x": str(left_section_width),
+            "width": str(right_section_width),
+            "height": str(BADGE_HEIGHT),
+            "fill": PLATFORM_COLOR,
+        },
+    )
+
+    text_group = ET.SubElement(
+        svg,
+        "g",
+        {
+            "fill": TEXT_FILL,
+            "text-anchor": "middle",
+            "font-family": FONT_FAMILY,
+            "font-size": str(FONT_SIZE),
+        },
+    )
+
+    left_text = ET.SubElement(
+        text_group,
+        "text",
+        {
+            "x": str(left_section_width // 2),
+            "y": "14",
+        },
+    )
+    left_text.text = LEFT_LABEL
+
+    right_text = ET.SubElement(
+        text_group,
+        "text",
+        {
+            "x": str(left_section_width + right_section_width // 2),
+            "y": "14",
+        },
+    )
+    right_text.text = right_label
+
+    return ET.tostring(svg, encoding="unicode", short_empty_elements=True)
+
+
+def render_platform_badge_svg_bytes(count: Any) -> bytes:
+    """Convenience wrapper returning the platform badge as UTF-8 bytes
+    with an XML declaration prefix — mirrors ``render_badge_svg_bytes``.
+    """
+    body = build_platform_badge_svg(count)
+    return b'<?xml version="1.0" encoding="UTF-8"?>' + body.encode("utf-8")
