@@ -695,6 +695,31 @@ export const getPolymarketJson = async (simulationId) => {
 }
 
 /**
+ * Build the absolute URL of the oEmbed provider endpoint for a published
+ * simulation's share URL. The discovery half of the oEmbed 1.0 spec —
+ * writing platforms (Notion, Ghost, Substack, WordPress) that find the
+ * `<link rel="alternate" type="application/json+oembed">` tag on a
+ * `/share/<id>` page call this endpoint to render a rich sim card inline
+ * instead of a bare link.
+ *
+ * Mounted at the root (no `/api` prefix). Returns a `type: "rich"`
+ * payload with the share-card thumbnail and an `/embed/<id>` iframe.
+ * `format` selects the JSON (default) or XML representation. A foreign
+ * `url`, an unpublished sim, or a missing sim all return 404.
+ *
+ * @param {string} simulationId
+ * @param {string} [origin]
+ * @param {('json'|'xml')} [format] - response representation, default 'json'
+ * @returns {string}
+ */
+export const getOEmbedUrl = (simulationId, origin, format = 'json') => {
+  const base = origin || (typeof window !== 'undefined' ? window.location.origin : '')
+  const shareUrl = `${base}/share/${simulationId}`
+  const params = new URLSearchParams({ url: shareUrl, format })
+  return `${base}/oembed?${params.toString()}`
+}
+
+/**
  * Build the absolute URL of the simulation archive bundle — a single
  * ZIP containing every published share surface (share-card.png,
  * chart.svg, trajectory.csv / jsonl, transcript.md, thread.txt,

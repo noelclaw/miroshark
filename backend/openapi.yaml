@@ -1962,6 +1962,71 @@ paths:
               schema: { type: string }
         "400": { $ref: "#/components/responses/BadRequest" }
 
+  /oembed:
+    get:
+      tags: [Publish & Embed]
+      summary: oEmbed 1.0 provider — auto-unfurl for MiroShark share URLs.
+      description: |
+        Mounted at the **root** (no `/api` prefix). Implements the
+        discovery half of the [oEmbed 1.0 spec](https://oembed.com) so a
+        paste of a `/share/<id>` link auto-unfurls into a rich sim card on
+        the *writing* platforms — Notion, Ghost, Substack, WordPress — that
+        read an `<link rel="alternate" type="application/json+oembed">`
+        discovery tag rather than Open Graph meta. The share landing page
+        emits that discovery tag for published sims; a consumer follows it
+        here with the share `url` and renders the returned embed inline.
+
+        Returns a `type: "rich"` payload: the `/api/simulation/<id>/share-card.png`
+        thumbnail (1200×630) and an 800×500 iframe over the `/embed/<id>`
+        SPA route. oEmbed adds a discovery *protocol* over surfaces that
+        already ship — it renders nothing new itself.
+
+        `format` selects the JSON (default) or XML representation. A
+        foreign-host `url`, a URL with no recognisable sim path, an
+        unpublished sim, and a missing sim all return `404` — the endpoint
+        only describes published sims hosted on this deployment and never
+        confirms a private sim exists. Honors `X-Forwarded-Proto` /
+        `X-Forwarded-Host`.
+      parameters:
+        - name: url
+          in: query
+          required: true
+          description: |
+            The canonical MiroShark share URL the consumer scraped the
+            discovery tag from (e.g. `https://your-host/share/<id>`). Must
+            resolve to a sim hosted on this deployment.
+          schema: { type: string, format: uri }
+        - name: format
+          in: query
+          required: false
+          description: Response representation. `json` (default) or `xml`.
+          schema: { type: string, enum: [json, xml], default: json }
+      responses:
+        "200":
+          description: oEmbed `rich` payload (JSON or XML per `format`).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OEmbedResponse" }
+            text/xml:
+              schema: { type: string }
+        "400":
+          description: Missing required `url` query parameter.
+          content:
+            text/plain:
+              schema: { type: string }
+        "404":
+          description: |
+            No published sim found for that URL — foreign domain,
+            unrecognised path, unpublished sim, or missing sim.
+          content:
+            text/plain:
+              schema: { type: string }
+        "501":
+          description: Requested `format` is not supported (use json or xml).
+          content:
+            text/plain:
+              schema: { type: string }
+
   /watch/{simulation_id}:
     get:
       tags: [Publish & Embed]
@@ -3599,6 +3664,39 @@ components:
           schema: { $ref: "#/components/schemas/ErrorEnvelope" }
 
   schemas:
+
+    OEmbedResponse:
+      type: object
+      description: |
+        oEmbed 1.0 `rich`-type payload returned by `GET /oembed`. A
+        consumer renders the `html` iframe inline and the `thumbnail_url`
+        as the preview image. JSON shape shown here; the `?format=xml`
+        variant carries the same fields as a flat `<oembed>` element.
+      required: [version, type, provider_name, title, html]
+      properties:
+        version: { type: string, enum: ["1.0"] }
+        type: { type: string, enum: [rich] }
+        provider_name: { type: string, example: MiroShark }
+        provider_url: { type: string, format: uri }
+        title:
+          type: string
+          description: Scenario prompt, truncated to 100 chars with an ellipsis.
+        thumbnail_url:
+          type: string
+          format: uri
+          description: Absolute URL of the 1200×630 share-card PNG.
+        thumbnail_width: { type: integer, example: 1200 }
+        thumbnail_height: { type: integer, example: 630 }
+        width: { type: integer, example: 800 }
+        height: { type: integer, example: 500 }
+        html:
+          type: string
+          description: An 800×500 iframe over the `/embed/<id>` SPA route.
+          example: '<iframe src="https://your-host/embed/sim_abc" width="800" height="500" frameborder="0" allowfullscreen></iframe>'
+        cache_age:
+          type: integer
+          description: Seconds a consumer may cache the embed.
+          example: 300
 
     SuccessEnvelope:
       type: object

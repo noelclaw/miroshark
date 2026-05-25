@@ -206,6 +206,18 @@ The EmbedDialog surfaces a `🟣 Farcaster Frame` section: a lazy-loaded preview
 - **Frame meta tags:** `fc:frame`, `fc:frame:image`, `fc:frame:image:aspect_ratio`, `fc:frame:button:1`, `fc:frame:button:1:action`, `fc:frame:button:1:target` — emitted by `GET /share/<id>` for published sims, silently absent for private sims.
 - **Endpoint:** `GET /api/simulation/<id>/frame-metadata` → `{frame_version, image_url, image_aspect_ratio, share_url, buttons, has_trajectory, sim_title}`. Same publish gate as the chart SVG — 403 on unpublished sims, 200 with the share-card fallback for sims with no trajectory yet.
 
+## oEmbed Auto-Unfurl (Notion / Ghost / Substack / WordPress)
+
+The writing-platform distribution surface. Open Graph and Twitter tags cover the social platforms; Farcaster Frame v2 covers Warpcast. But the platforms where researchers and analysts actually *publish* — Notion, Ghost, Substack, WordPress — don't render from Open Graph alone; they implement the [oEmbed 1.0 spec](https://oembed.com) and look for a discovery `<link>` tag, then call back to the provider for a structured embed payload. Without it, a MiroShark link pasted into a Notion page or a Substack draft renders as a bare URL.
+
+`GET /oembed?url=<share-url>` is that provider. The share-page `<head>` now emits two discovery tags for published sims — `<link rel="alternate" type="application/json+oembed">` and the `text/xml+oembed` variant (some consumers, Notion among them, probe for the XML link) — both pointing at the root-mounted `/oembed` endpoint. A consumer that finds the tag calls back with the share URL and receives a `type: "rich"` payload: the 1200×630 share-card PNG as `thumbnail_url` and an 800×500 iframe over the existing `/embed/<id>` SPA route as `html`. Every organic citation becomes a rich preview card with no user action.
+
+oEmbed adds a *protocol*, not a renderer — the thumbnail and iframe both point at surfaces that already ship. Pure stdlib on the backend (`re` + `urllib.parse` + `xml.etree.ElementTree` in `app/services/oembed_service.py`), zero new dependencies. The endpoint never dereferences the inbound URL; it only extracts a sim id from a path on a host this deployment owns, so a foreign-domain `url` returns `404` and the surface can't be aimed at another site. Private and missing sims also return `404` (indistinguishable from each other), so the endpoint never confirms a private sim exists — the same gating posture as the OG / Frame tags.
+
+- **Endpoint:** `GET /oembed?url=<share-url>&format=<json|xml>` → oEmbed `rich` payload. `format` defaults to `json`; an unsupported format returns `501` per the spec. Mounted at the root (no `/api` prefix). Honors `X-Forwarded-Proto` / `X-Forwarded-Host`.
+- **Discovery tags:** `GET /share/<id>` emits `application/json+oembed` + `text/xml+oembed` `<link>` tags for published sims, silently absent for private sims.
+- **Counter:** the `oembed` key joins the surface-stats schema so an operator can see how many third-party unfurls the endpoint drove.
+
 ## Trajectory Chart SVG
 
 The scalable-vector companion to the trajectory CSV / JSONL data export. Where the CSV gives Pandas / Excel / Tableau / R the raw numbers, `GET /api/simulation/<id>/chart.svg` gives every other platform a ready-made image of the belief journey — bullish (`#22c55e`), neutral (`#6b7280`), bearish (`#ef4444`) polylines plotted against round number on a fixed `viewBox="0 0 800 400"`, with a 5-line y-axis grid, round-number x-axis labels, a three-swatch legend, and the scenario title.

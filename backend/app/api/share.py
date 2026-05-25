@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import html
 import os
+from urllib.parse import quote, urlparse
 from flask import Blueprint, Response, request
 
 from ..config import Config
@@ -56,6 +57,7 @@ def _render_landing_html(
     spa_url: str,
     card_url: str,
     frame_meta: dict | None = None,
+    oembed_block: str = "",
 ) -> str:
     """Build the static HTML returned to scrapers + browsers.
 
@@ -154,6 +156,7 @@ def _render_landing_html(
         f"<meta name=\"twitter:description\" content=\"{desc_e}\">\n"
         f"<meta name=\"twitter:image\" content=\"{card_e}\">\n"
         f"{frame_block}"
+        f"{oembed_block}"
         "\n"
         f"<meta http-equiv=\"refresh\" content=\"0; url={spa_e}\">\n"
         f"<link rel=\"canonical\" href=\"{spa_e}\">\n"
@@ -255,6 +258,26 @@ def share_landing(simulation_id: str):
         except Exception:
             frame_meta = None
 
+    # oEmbed discovery links. Emitted only for published sims — same
+    # gating posture as the OG / Frame tags so a private sim's scenario
+    # never leaks. Writing platforms (Notion, Ghost, Substack, WordPress)
+    # read these <link> tags and call back to /oembed for a rich card.
+    # Both the JSON and XML format variants are advertised; the endpoint
+    # honours ?format= and the consumer picks whichever it prefers.
+    oembed_block = ""
+    if is_public:
+        share_self_url = f"{base}/share/{simulation_id}"
+        encoded = quote(share_self_url, safe="")
+        oembed_title = _esc((scenario or "MiroShark Simulation")[:60])
+        json_href = _esc(f"{base}/oembed?url={encoded}&format=json")
+        xml_href = _esc(f"{base}/oembed?url={encoded}&format=xml")
+        oembed_block = (
+            f"<link rel=\"alternate\" type=\"application/json+oembed\" "
+            f"href=\"{json_href}\" title=\"{oembed_title}\">\n"
+            f"<link rel=\"alternate\" type=\"text/xml+oembed\" "
+            f"href=\"{xml_href}\" title=\"{oembed_title}\">\n"
+        )
+
     body = _render_landing_html(
         simulation_id=simulation_id,
         scenario=scenario if is_public else "",
@@ -262,10 +285,168 @@ def share_landing(simulation_id: str):
         spa_url=spa_url,
         card_url=card_url,
         frame_meta=frame_meta,
+        oembed_block=oembed_block,
     )
 
     response = Response(body, mimetype="text/html; charset=utf-8")
     # OG scrapers cache aggressively — keep the cache short so newly
     # published sims show their card without long delays.
+    response.headers["Cache-Control"] = "public, max-age=300"
+    return response
+
+
+def _resolve_oembed_base_url() -> str:
+    """Canonical origin for the absolute URLs inside an oEmbed payload.
+
+    Same strategy as the feed / sitemap modules — prefer the operator-set
+    ``Config.PUBLIC_BASE_URL`` (single source of truth across surfaces),
+    falling back to the request host with ``X-Forwarded-Proto`` /
+    ``X-Forwarded-Host`` honoured for reverse-proxy deployments. Returns a
+    value with no trailing slash.
+    """
+    explicit = (Config.PUBLIC_BASE_URL or "").strip()
+    if explicit:
+        return explicit.rstrip("/")
+
+    base = (request.host_url or "").rstrip("/")
+    forwarded_proto = request.headers.get("X-Forwarded-Proto")
+    forwarded_host = request.headers.get("X-Forwarded-Host")
+    if forwarded_host:
+        proto = forwarded_proto or ("https" if request.is_secure else "http")
+        base = f"{proto}://{forwarded_host}"
+    return base
+
+
+def _oembed_allowed_hosts(base_url: str) -> set:
+    """Hosts an inbound oEmbed ``url`` is allowed to belong to.
+
+    A consumer hands us the canonical share URL it scraped the discovery
+    tag from; we only describe sims hosted on *this* deployment. The set
+    is the union of the resolved canonical host, the raw request host, and
+    any ``X-Forwarded-Host`` — so the gate passes behind a proxy and on a
+    bare ``PUBLIC_BASE_URL``-less dev server alike, but a foreign domain
+    is rejected (the endpoint can't be aimed at another site).
+    """
+    hosts: set = set()
+    for candidate in (base_url, request.host_url):
+        if candidate:
+            netloc = urlparse(candidate).netloc.lower()
+            if netloc:
+                hosts.add(netloc)
+    forwarded_host = request.headers.get("X-Forwarded-Host")
+    if forwarded_host:
+        hosts.add(forwarded_host.strip().lower())
+    return hosts
+
+
+@share_bp.route('/oembed', methods=['GET'])
+def oembed_provider():
+    """oEmbed 1.0 provider — auto-unfurl for MiroShark share URLs.
+
+    Mounted at the **root** (no ``/api`` prefix) so the discovery tag in
+    the share page points at a clean ``/oembed?url=`` endpoint. A consumer
+    (Notion, Ghost, Substack, WordPress, …) that finds the
+    ``<link rel="alternate" type="application/json+oembed">`` tag on a
+    ``/share/<id>`` page calls back here with the share URL and renders
+    the returned ``rich`` embed inline.
+
+    Query params:
+
+      * ``url`` (required) — the MiroShark share URL the consumer scraped.
+        Must resolve to a sim hosted on this deployment; a foreign domain
+        or a URL with no recognisable sim path returns ``404``.
+      * ``format`` (optional, ``json`` default) — ``json`` or ``xml``. Any
+        other value returns ``501`` per the oEmbed spec.
+
+    Same publish gate as the share landing tags: a private or missing sim
+    is answered with ``404`` (indistinguishable from a non-existent one)
+    so the endpoint never confirms a private sim exists.
+    """
+    from ..services import oembed_service
+    from ..services import surface_stats
+
+    locale = get_locale(request)
+
+    fmt = (request.args.get("format") or "json").strip().lower()
+    if fmt not in ("json", "xml"):
+        # oEmbed spec: a requested format the provider can't supply is a
+        # 501 Not Implemented, not a 400.
+        return Response(
+            _t(
+                "Unsupported oEmbed format — use 'json' or 'xml'.",
+                "不支持的 oEmbed 格式 — 请使用 'json' 或 'xml'。",
+                locale,
+            ),
+            status=501,
+            mimetype="text/plain; charset=utf-8",
+        )
+
+    url = (request.args.get("url") or "").strip()
+    if not url:
+        return Response(
+            _t(
+                "Missing required 'url' query parameter.",
+                "缺少必需的 'url' 查询参数。",
+                locale,
+            ),
+            status=400,
+            mimetype="text/plain; charset=utf-8",
+        )
+
+    base = _resolve_oembed_base_url()
+    allowed_hosts = _oembed_allowed_hosts(base)
+
+    not_found = Response(
+        _t(
+            "No published MiroShark simulation found for that URL.",
+            "未找到与该 URL 对应的已发布 MiroShark 模拟。",
+            locale,
+        ),
+        status=404,
+        mimetype="text/plain; charset=utf-8",
+    )
+
+    sim_id = oembed_service.parse_sim_id_from_url(url, allowed_hosts=allowed_hosts)
+    if not sim_id:
+        return not_found
+
+    try:
+        validate_simulation_id(sim_id)
+    except ValueError:
+        return not_found
+
+    # Publish gate — never raise on a peripheral lookup; an unpublished or
+    # missing sim falls through to the shared 404.
+    scenario = ""
+    is_public = False
+    try:
+        manager = SimulationManager()
+        state = manager.get_simulation(sim_id)
+        if state:
+            is_public = bool(getattr(state, "is_public", False))
+            if is_public:
+                config = manager.get_simulation_config(sim_id)
+                if config:
+                    scenario = (config.get("simulation_requirement") or "").strip()
+    except Exception:
+        is_public = False
+
+    if not is_public:
+        return not_found
+
+    payload = oembed_service.build_oembed_payload(scenario, sim_id, base)
+
+    sim_dir = os.path.join(Config.WONDERWALL_SIMULATION_DATA_DIR, sim_id)
+    surface_stats.increment_surface_stat(sim_dir, "oembed")
+
+    if fmt == "xml":
+        body = oembed_service.oembed_to_xml(payload)
+        response = Response(body, mimetype="text/xml; charset=utf-8")
+    else:
+        import json as _json
+
+        body = _json.dumps(payload, indent=2, ensure_ascii=False)
+        response = Response(body, mimetype="application/json; charset=utf-8")
+
     response.headers["Cache-Control"] = "public, max-age=300"
     return response
