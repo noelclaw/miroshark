@@ -2627,7 +2627,7 @@ paths:
         future ETag layer can hash the response bytes directly.
       responses:
         "200":
-          description: Flat 20-pixel platform badge with `Content-Type: image/svg+xml` + `Cache-Control: public, max-age=60`.
+          description: "Flat 20-pixel platform badge with `Content-Type: image/svg+xml` + `Cache-Control: public, max-age=60`."
           content:
             image/svg+xml:
               schema:
