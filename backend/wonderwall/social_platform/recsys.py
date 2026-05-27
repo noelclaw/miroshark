@@ -23,13 +23,9 @@ from math import log
 from typing import Any, Dict, List
 
 import numpy as np
-import torch
-from sentence_transformers import SentenceTransformer
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
-from .process_recsys_posts import (generate_post_vector,
-                                   generate_post_vector_openai)
 from .typing import ActionType, RecsysType
 
 rec_log = logging.getLogger(name='social.rec')
@@ -42,8 +38,6 @@ twhin_model = None
 
 # Create the TF-IDF model
 tfidf_vectorizer = TfidfVectorizer()
-# Prepare the twhin model
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # All historical tweets and the most recent tweet of each user
 user_previous_post_all = {}
@@ -82,6 +76,8 @@ def get_twhin_model(device):
 
 def load_model(model_name):
     try:
+        import torch  # lazy — ~700MB, only load when TWHIN/TWITTER recsys is used
+        from sentence_transformers import SentenceTransformer
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         if model_name == 'paraphrase-MiniLM-L6-v2':
             return SentenceTransformer(model_name,
@@ -112,12 +108,6 @@ def get_recsys_model(recsys_type: str = None):
         raise ValueError(f"Unknown recsys type: {recsys_type}")
 
 
-# Move model to GPU if available
-device = 'cuda' if torch.cuda.is_available() else 'cpu'
-if model is not None:
-    model.to(device)
-else:
-    pass
 
 
 # Reset global variables
@@ -526,6 +516,7 @@ def rec_sys_personalized_twh(
         corpus = user_profiles + filtered_posts_tuple[0]
         # corpus = user_profiles + list(t_items.values())
         tweet_vector_start_t = time.time()
+        from .process_recsys_posts import generate_post_vector, generate_post_vector_openai  # lazy — torch-heavy
         if use_openai_embedding:
             all_post_vector_list = generate_post_vector_openai(corpus,
                                                                batch_size=1000)

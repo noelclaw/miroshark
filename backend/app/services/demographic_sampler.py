@@ -98,7 +98,7 @@ def _resolve_parquet_glob(country_cfg: Dict[str, Any]) -> Optional[str]:
             repo_type='dataset',
             allow_patterns=ds.get('allow_patterns') or ['data/train-*', 'README.md'],
             local_dir=download_dir,
-            max_workers=4,
+            max_workers=8,
         )
     except Exception as e:  # noqa: BLE001
         logger.warning(f"Nemotron snapshot_download failed for {repo_id}: {e}")

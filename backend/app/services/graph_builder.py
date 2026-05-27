@@ -47,7 +47,7 @@ class GraphBuilderService:
         graph_name: str = "MiroShark Graph",
         chunk_size: int = 1000,
         chunk_overlap: int = 50,
-        max_workers: int = 6
+        max_workers: int = 10
     ) -> str:
         """
         Build graph asynchronously
@@ -218,13 +218,13 @@ class GraphBuilderService:
         self,
         graph_id: str,
         chunks: List[str],
-        max_workers: int = 6,
+        max_workers: int = 10,
         progress_callback: Optional[Callable] = None
     ) -> List[str]:
         """Add text chunks to graph in parallel, return uuid list of all episodes.
 
         Uses a single thread pool across all chunks (no artificial batch
-        boundaries). NER extraction is I/O-bound (LLM call), so 6 concurrent
+        boundaries). NER extraction is I/O-bound (LLM call), so 10 concurrent
         workers gives near-linear speedup without overwhelming the API.
         """
         episode_uuids = []

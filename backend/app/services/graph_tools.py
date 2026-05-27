@@ -1484,7 +1484,7 @@ class GraphToolsService:
         logger.info(f"Running LLM-based fallback interview for {len(selected_agents)} agents (parallel)")
 
         # Run all agent interviews concurrently via thread pool
-        max_workers = min(len(selected_agents), 4)  # Cap concurrency to avoid API rate limits
+        max_workers = min(len(selected_agents), 10)  # Cap concurrency to avoid API rate limits
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             future_to_idx = {}
             for i, agent_idx in enumerate(selected_indices):

@@ -22,6 +22,17 @@ from app import create_app
 from app.config import Config
 
 
+def _warmup_recsys():
+    """Pre-load sentence-transformers model into memory so first simulation is fast."""
+    try:
+        import torch
+        from sentence_transformers import SentenceTransformer
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        SentenceTransformer('paraphrase-MiniLM-L6-v2', device=device, cache_folder="./models")
+    except Exception:
+        pass  # non-fatal — lazy load fallback still works
+
+
 def main():
     """Main function"""
     # Validate configuration
@@ -41,6 +52,11 @@ def main():
     port = int(os.environ.get('FLASK_PORT', 5001))
     debug = Config.DEBUG
     
+    # Pre-warm sentence-transformers model in background (non-blocking)
+    if not debug:
+        import threading
+        threading.Thread(target=_warmup_recsys, daemon=True).start()
+
     # Start server
     app.run(host=host, port=port, debug=debug, threaded=True)
 

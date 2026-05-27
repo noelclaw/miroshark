@@ -28,9 +28,6 @@ from wonderwall.social_platform.database import (create_db,
                                             fetch_rec_table_as_matrix,
                                             fetch_table_from_db)
 from wonderwall.social_platform.platform_utils import PlatformUtils
-from wonderwall.social_platform.recsys import (rec_sys_personalized_twh,
-                                          rec_sys_personalized_with_trace,
-                                          rec_sys_random, rec_sys_reddit)
 from wonderwall.social_platform.typing import ActionType, RecsysType
 
 # Create log directory if it doesn't exist
@@ -332,6 +329,10 @@ class Platform:
         post_table = fetch_table_from_db(self.db_cursor, "post")
         trace_table = fetch_table_from_db(self.db_cursor, "trace")
         rec_matrix = fetch_rec_table_as_matrix(self.db_cursor)
+
+        from wonderwall.social_platform.recsys import (  # lazy — avoids eager torch load
+            rec_sys_personalized_twh, rec_sys_personalized_with_trace,
+            rec_sys_random, rec_sys_reddit)
 
         if self.recsys_type == RecsysType.RANDOM:
             new_rec_matrix = rec_sys_random(post_table, rec_matrix,
