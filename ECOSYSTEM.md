@@ -21,6 +21,7 @@ These are the projects we know of that run MiroShark, extend it, or integrate wi
 | Crucible Sim | [crucible-sim](https://github.com/wshuyi/crucible-sim) |
 | Echo | [@BuiltByEcho](https://x.com/BuiltByEcho) · [builtbyecho.xyz](https://www.builtbyecho.xyz/) |
 | Monitor | [monitor-the-situation-bags](https://github.com/Zoidberg-eternal/monitor-the-situation-bags) |
+| Noelclaw | [@noelclawfun](https://x.com/noelclawfun) · [noelclaw.com](https://noelclaw.com) · [mcp](https://github.com/noelclaw/mcp) |
 | Nookplot | [nookplot.com](https://nookplot.com/?view=network) |
 | RootAI | [@Root_Edge](https://x.com/Root_Edge) · [rootai.wtf](https://rootai.wtf) |
 | Signa | [@Signa_Agent](https://x.com/Signa_Agent) · [signa-miroshark-skills](https://github.com/codexvritra/signa-miroshark-skills) |
